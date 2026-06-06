@@ -2,15 +2,15 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Union
 import json
-
+import os
 
 class Database:
 
-    def __init__(self, db_path: str = "test.db"):
+    def __init__(self, db_path: str = "test_2_1.db"):
 
         self.db_path = db_path
 
-    @contextmanager
+    '''@contextmanager
     def _get_connection(self):
 
         conn = sqlite3.connect(self.db_path)
@@ -23,7 +23,111 @@ class Database:
             conn.rollback()
             raise
         finally:
+            conn.close()'''
+    
+
+
+    @contextmanager
+    def _get_connection(self):
+        abs_path = os.path.abspath(self.db_path)
+        print(f" Connecting to database: {abs_path}")
+        
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        print(f" Connection established")
+        
+        try:
+            yield conn
+            conn.commit()
+            print(f" Transaction committed")
+        except Exception as e:
+            conn.rollback()
+            print(f" Transaction rolled back: {e}")
+            raise
+        finally:
             conn.close()
+            print(f" Connection closed")
+    
+    def init_tables(self):
+        """Создаёт все таблицы"""
+        print(" Initializing database tables...")
+        
+        # Таблица users
+        self.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        login TEXT CHECK(LENGTH(login) <= 50) UNIQUE NOT NULL,
+        username TEXT CHECK(LENGTH(username) <= 50) UNIQUE NOT NULL,
+        password_hash TEXT CHECK(LENGTH(password_hash) <= 255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP
+        );
+            
+        """)
+        print("   users table ready")
+        
+        # Таблица exercises
+        self.execute("""
+        CREATE TABLE exercises (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT CHECK(LENGTH(name) <= 50) NOT NULL,
+        description TEXT,
+        muscle_group TEXT CHECK(LENGTH(muscle_group) <= 100), 
+        equipment TEXT CHECK(LENGTH(equipment) <= 100),
+        difficulty TEXT CHECK(LENGTH(difficulty) <= 20),
+        is_public BOOLEAN DEFAULT TRUE,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        video_url TEXT
+        );
+        """)
+        print("   exercises table ready")
+        
+        # Таблица daily_templates
+        self.execute("""
+        CREATE TABLE workout_daily_template (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        author_id INTEGER REFERENCES users(id),
+        name TEXT NOT NULL,
+        exercises JSONB,
+        difficulty TEXT CHECK(LENGTH(difficulty) <= 20),
+        muscle_group TEXT CHECK(LENGTH(muscle_group) <= 100),
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        print("   daily_templates table ready")
+        
+        # Таблица monthly_templates
+        self.execute("""
+        CREATE TABLE workout_monthly_template (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        author_id INTEGER REFERENCES users(id),
+        name TEXT NOT NULL,
+        days_json JSONB,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        print("   monthly_templates table ready")
+
+        self.execute('''
+            CREATE TABLE goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        monthly_template_id INTEGER NOT NULL REFERENCES workout_monthly_template(id) ON DELETE CASCADE,
+        is_cycled BOOLEAN DEFAULT 0,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP,
+        UNIQUE(user_id, monthly_template_id)
+        )
+        ''')
+
+    
+
     
     def execute(
         self,
@@ -80,6 +184,13 @@ class Database:
     
 
 if __name__ == "__main__":
+    pass
+
+    db = Database('test_2_1.db')
+
+    db.init_tables()
+
+'''
     db = Database("test_1.db")
     db.execute("""
         CREATE TABLE exercises (
@@ -91,7 +202,8 @@ if __name__ == "__main__":
     difficulty TEXT CHECK(LENGTH(difficulty) <= 20),
     is_public BOOLEAN DEFAULT TRUE,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     video_url TEXT
     );
     """)
@@ -101,7 +213,7 @@ if __name__ == "__main__":
         login TEXT CHECK(LENGTH(login) <= 50) UNIQUE NOT NULL,
         username TEXT CHECK(LENGTH(username) <= 50) UNIQUE NOT NULL,
         password_hash TEXT CHECK(LENGTH(password_hash) <= 255) NOT NULL,
-        created_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP,
         last_login TIMESTAMP
     );
@@ -113,17 +225,17 @@ if __name__ == "__main__":
     difficulty TEXT CHECK(LENGTH(difficulty) <= 20),
     muscle_group TEXT CHECK(LENGTH(muscle_group) <= 100),
     description TEXT,
-    created_at TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
     db.execute("""
-    CREATE TABLE Workout_monthy_template (
+    CREATE TABLE workout_monthy_template (
     author_id INTEGER REFERENCES users(id),
     templates JSONB,
     difficulty TEXT CHECK(LENGTH(difficulty) <= 20),
     muscle_group TEXT CHECK(LENGTH(muscle_group) <= 100),
     description TEXT,
-    created_at TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
 
     """)
@@ -157,3 +269,4 @@ if __name__ == "__main__":
     
 
     print("\n База данных работает корректно.")
+    '''
