@@ -1,0 +1,25 @@
+# Секреты
+.env
+
+# База данных
+*.db
+*.sqlite
+data/
+
+# Логи
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/

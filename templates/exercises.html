@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Упражнения{% endblock %}
+
+{% block content %}
+<p class="page-title">упражнения</p>
+
+<div class="editor-layout">
+    <!-- Список -->
+    <div>
+        <div class="flex-between mb-1">
+            <span class="section-label">Доступные</span>
+            <div class="flex-gap">
+                <input type="text" id="searchInput" placeholder="поиск..." style="width:160px;padding:.3rem .6rem;font-size:.8rem;">
+            </div>
+        </div>
+        <div id="exercisesList" class="item-list">
+            <div class="empty-state"><div class="empty-state-icon">◉</div>загрузка...</div>
+        </div>
+    </div>
+
+    <!-- Панель создания / детали -->
+    <div>
+        <!-- Форма создания -->
+        <div class="editor-panel" id="createPanel">
+            <div class="editor-panel-title">Новое упражнение</div>
+            <div class="form-group">
+                <label class="form-label">Название *</label>
+                <input type="text" id="exName" maxlength="50">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Группа мышц *</label>
+                <input type="text" id="exMuscle" maxlength="100">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Сложность</label>
+                <select id="exDifficulty">
+                    <option value="">—</option>
+                    <option value="beginner">Начальный</option>
+                    <option value="intermediate">Средний</option>
+                    <option value="advanced">Продвинутый</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Инвентарь</label>
+                <input type="text" id="exEquipment" maxlength="100">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Описание</label>
+                <textarea id="exDesc" rows="3" style="resize:vertical;"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Ссылка на видео</label>
+                <input type="url" id="exVideo">
+            </div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center;" id="createBtn">
+                Создать
+            </button>
+        </div>
+
+        <!-- Детали упражнения (скрыты) -->
+        <div class="editor-panel hidden" id="detailPanel">
+            <div class="flex-between" style="margin-bottom:.75rem;">
+                <div class="editor-panel-title" style="margin:0;">детали</div>
+                <button class="btn btn-ghost btn-sm" id="closeDetailBtn">✕</button>
+            </div>
+            <div id="detailContent"></div>
+            <div class="divider"></div>
+            <button class="btn btn-danger btn-sm" id="deleteExBtn" style="width:100%;justify-content:center;">
+                Удалить упражнение
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let exercises = [];
+let selectedEx = null;
+
+async function loadExercises() {
+    try {
+        const [mine, pub] = await Promise.all([
+            get('/exercises/my'),
+            get('/exercises/public'),
+        ]);
+        // Объединяем, убираем дубли по id
+        const seen = new Set();
+        exercises = [...mine, ...pub].filter(e => {
+            if (seen.has(e.id)) return false;
+            seen.add(e.id);
+            return true;
+        });
+        renderList(exercises);
+    } catch (e) {
+        toastErr('Не удалось загрузить упражнения');
+    }
+}
+
+function renderList(list) {
+    const container = document.getElementById('exercisesList');
+    if (!list.length) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">◉</div>ничего не найдено</div>`;
+        return;
+    }
+    container.innerHTML = list.map((e, i) => `
+        <div class="item-row card-clickable" onclick="showDetail(${e.id})">
+            <span class="item-index">${String(i + 1).padStart(2, '0')}</span>
+            <div class="item-row-info">
+                <div class="item-row-name">${e.name}</div>
+                <div class="item-row-sub">${e.muscle_group}${e.difficulty ? ' · ' + difficultyLabel(e.difficulty) : ''}</div>
+            </div>
+            ${e.is_public ? '<span class="tag">pub</span>' : ''}
+        </div>
+    `).join('');
+}
+
+function showDetail(id) {
+    selectedEx = exercises.find(e => e.id === id);
+    if (!selectedEx) return;
+
+    document.getElementById('createPanel').classList.add('hidden');
+    document.getElementById('detailPanel').classList.remove('hidden');
+
+    const canDelete = !selectedEx.is_public;
+    document.getElementById('deleteExBtn').classList.toggle('hidden', canDelete === false);
+
+    document.getElementById('detailContent').innerHTML = `
+        <div class="card-title" style="margin-bottom:.75rem;">${selectedEx.name}</div>
+        <div class="item-row-sub" style="margin-bottom:.75rem;">
+            ${selectedEx.muscle_group}
+            ${selectedEx.difficulty ? ' · ' + difficultyLabel(selectedEx.difficulty) : ''}
+            ${selectedEx.equipment ? ' · ' + selectedEx.equipment : ''}
+        </div>
+        ${selectedEx.description ? `<p class="text-sm text-muted">${selectedEx.description}</p>` : ''}
+        ${selectedEx.video_url ? `<a href="${selectedEx.video_url}" target="_blank" class="text-sm" style="color:var(--accent-dim);display:inline-block;margin-top:.5rem;">▶ видео</a>` : ''}
+    `;
+}
+
+document.getElementById('closeDetailBtn').addEventListener('click', () => {
+    document.getElementById('detailPanel').classList.add('hidden');
+    document.getElementById('createPanel').classList.remove('hidden');
+    selectedEx = null;
+});
+
+document.getElementById('deleteExBtn').addEventListener('click', async () => {
+    if (!selectedEx) return;
+    try {
+        await del(`/exercises/${selectedEx.id}`);
+        exercises = exercises.filter(e => e.id !== selectedEx.id);
+        renderList(exercises);
+        document.getElementById('detailPanel').classList.add('hidden');
+        document.getElementById('createPanel').classList.remove('hidden');
+        selectedEx = null;
+        toastOk('Упражнение удалено');
+    } catch (e) {
+        toastErr(e.message);
+    }
+});
+
+// Поиск
+document.getElementById('searchInput').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    renderList(exercises.filter(ex =>
+        ex.name.toLowerCase().includes(q) ||
+        ex.muscle_group.toLowerCase().includes(q)
+    ));
+});
+
+// Создание
+document.getElementById('createBtn').addEventListener('click', async () => {
+    const name = document.getElementById('exName').value.trim();
+    const muscle = document.getElementById('exMuscle').value.trim();
+    if (!name || !muscle) { toastErr('Название и группа мышц обязательны'); return; }
+
+    const btn = document.getElementById('createBtn');
+    setLoading(btn, true);
+    try {
+        const ex = await post('/exercises/', {
+            name,
+            muscle_group: muscle,
+            difficulty: document.getElementById('exDifficulty').value || null,
+            equipment: document.getElementById('exEquipment').value.trim() || null,
+            description: document.getElementById('exDesc').value.trim() || null,
+            video_url: document.getElementById('exVideo').value.trim() || null,
+        });
+        exercises.unshift(ex);
+        renderList(exercises);
+        // Сброс формы
+        ['exName','exMuscle','exEquipment','exDesc','exVideo'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('exDifficulty').value = '';
+        toastOk('Упражнение создано');
+    } catch (e) {
+        toastErr(e.message);
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+loadExercises();
+</script>
+{% endblock %}

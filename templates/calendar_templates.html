@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}Календарные шаблоны{% endblock %}
+
+{% block content %}
+<p class="page-title">календарные шаблоны</p>
+
+<div class="editor-layout">
+    <!-- Список шаблонов -->
+    <div>
+        <div class="flex-between mb-1">
+            <span class="section-label">Мои шаблоны</span>
+            <button class="btn btn-ghost btn-sm" id="newTplBtn">+ новый</button>
+        </div>
+
+        <div class="card mb-2 hidden" id="newTplForm">
+            <div class="editor-panel-title">Новый шаблон</div>
+            <div class="form-group">
+                <label class="form-label">Название *</label>
+                <input type="text" id="tplName" maxlength="100">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Описание</label>
+                <textarea id="tplDesc" rows="2" style="resize:vertical;"></textarea>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost btn-sm" id="cancelTplBtn">отмена</button>
+                <button class="btn btn-primary btn-sm" id="createTplBtn">создать</button>
+            </div>
+        </div>
+
+        <div id="templatesList" class="item-list">
+            <div class="empty-state"><div class="empty-state-icon">▦</div>загрузка...</div>
+        </div>
+    </div>
+
+    <!-- Редактор -->
+    <div class="editor-panel" id="editorPanel">
+        <div id="editorEmpty" style="text-align:center;padding:2rem 0;color:var(--text-3);font-size:.82rem;font-family:var(--font-mono);">
+            ← выберите шаблон
+        </div>
+
+        <div class="hidden" id="editorContent">
+            <div class="flex-between" style="margin-bottom:1rem;">
+                <div class="editor-panel-title" style="margin:0;" id="editorTitle"></div>
+                <button class="btn btn-danger btn-sm" id="deleteTplBtn">удалить</button>
+            </div>
+
+            <div class="section-label mb-1">Дни <span id="daysCount" class="text-dim text-mono"></span></div>
+
+            <div id="daysList" class="item-list" style="margin-bottom:1rem;"></div>
+
+            <button class="btn btn-danger btn-sm hidden" id="popDayBtn"
+                    style="width:100%;justify-content:center;margin-bottom:1rem;">
+                ✕ убрать последний день
+            </button>
+
+            <div class="divider"></div>
+
+            <div class="section-label mb-1">Добавить день</div>
+            <div class="form-group">
+                <input type="text" id="dailySearch" placeholder="поиск дневного шаблона...">
+            </div>
+            <div id="dailyPickList" class="item-list" style="max-height:240px;overflow-y:auto;"></div>
+
+            <div class="hidden" id="addDayConfirm">
+                <div class="divider"></div>
+                <div class="text-sm text-muted mb-1" id="pickedDayLabel"></div>
+                <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center;" id="addDayBtn">
+                    + добавить день
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let templates = [];
+let dailyTemplates = [];
+let selectedTpl = null;
+let pickedDaily = null;
+
+async function loadTemplates() {
+    try {
+        templates = await get('/monthly-templates/');
+        renderTemplates();
+    } catch (e) {
+        toastErr('Не удалось загрузить шаблоны');
+    }
+}
+
+async function loadDailyTemplates() {
+    try {
+        dailyTemplates = await get('/daily-templates/');
+    } catch (e) { /* тихо */ }
+}
+
+function renderTemplates() {
+    const c = document.getElementById('templatesList');
+    if (!templates.length) {
+        c.innerHTML = `<div class="empty-state"><div class="empty-state-icon">▦</div>нет шаблонов</div>`;
+        return;
+    }
+    c.innerHTML = templates.map(t => `
+        <div class="item-row card-clickable ${selectedTpl?.id === t.id ? 'active' : ''}"
+             onclick="selectTemplate(${t.id})">
+            <div class="item-row-info">
+                <div class="item-row-name">${t.name}</div>
+                <div class="item-row-sub text-mono">${t.description || '—'}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function selectTemplate(id) {
+    try {
+        selectedTpl = await get(`/monthly-templates/${id}`);
+        renderTemplates();
+        renderEditor();
+    } catch (e) {
+        toastErr(e.message);
+    }
+}
+
+function renderEditor() {
+    document.getElementById('editorEmpty').classList.add('hidden');
+    document.getElementById('editorContent').classList.remove('hidden');
+    document.getElementById('editorTitle').textContent = selectedTpl.name;
+
+    const days = selectedTpl.days || {};
+    const dayKeys = Object.keys(days).sort((a, b) => parseInt(a) - parseInt(b));
+
+    document.getElementById('daysCount').textContent = `(${dayKeys.length})`;
+    document.getElementById('popDayBtn').classList.toggle('hidden', dayKeys.length === 0);
+
+    const list = document.getElementById('daysList');
+    if (!dayKeys.length) {
+        list.innerHTML = `<div class="text-dim text-sm text-mono" style="padding:.5rem 0;">дней нет</div>`;
+    } else {
+        list.innerHTML = dayKeys.map(k => {
+            const dailyId = days[k];
+            const daily = dailyTemplates.find(d => d.id === dailyId);
+            return `
+            <div class="item-row">
+                <span class="item-index">${String(parseInt(k)).padStart(2, '0')}</span>
+                <div class="item-row-info">
+                    <div class="item-row-name">${daily?.name ?? `шаблон #${dailyId}`}</div>
+                    <div class="item-row-sub">${daily?.exercises?.length ?? '?'} упр.</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    pickedDaily = null;
+    document.getElementById('addDayConfirm').classList.add('hidden');
+    renderDailyPicker('');
+}
+
+function renderDailyPicker(query) {
+    const list = document.getElementById('dailyPickList');
+    const filtered = dailyTemplates.filter(d =>
+        !query || d.name.toLowerCase().includes(query.toLowerCase())
+    );
+    if (!filtered.length) {
+        list.innerHTML = `<div class="text-dim text-sm text-mono" style="padding:.5rem 0;">ничего</div>`;
+        return;
+    }
+    list.innerHTML = filtered.map(d => `
+        <div class="item-row card-clickable ${pickedDaily?.id === d.id ? 'active' : ''}"
+             onclick="pickDaily(${d.id})">
+            <div class="item-row-info">
+                <div class="item-row-name">${d.name}</div>
+                <div class="item-row-sub">${d.exercises?.length ?? 0} упр.${d.difficulty ? ' · ' + difficultyLabel(d.difficulty) : ''}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function pickDaily(id) {
+    pickedDaily = dailyTemplates.find(d => d.id === id);
+    renderDailyPicker(document.getElementById('dailySearch').value);
+    document.getElementById('addDayConfirm').classList.remove('hidden');
+    document.getElementById('pickedDayLabel').textContent = pickedDaily.name;
+}
+
+document.getElementById('dailySearch').addEventListener('input', e => renderDailyPicker(e.target.value));
+
+document.getElementById('addDayBtn').addEventListener('click', async () => {
+    if (!pickedDaily || !selectedTpl) return;
+    const btn = document.getElementById('addDayBtn');
+    setLoading(btn, true);
+    try {
+        selectedTpl = await post(`/monthly-templates/${selectedTpl.id}/days`, {
+            daily_template_id: pickedDaily.id,
+        });
+        const idx = templates.findIndex(t => t.id === selectedTpl.id);
+        if (idx !== -1) templates[idx] = selectedTpl;
+        renderEditor();
+        renderTemplates();
+        toastOk('День добавлен');
+    } catch (e) {
+        toastErr(e.message);
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+document.getElementById('popDayBtn').addEventListener('click', async () => {
+    if (!selectedTpl) return;
+    const btn = document.getElementById('popDayBtn');
+    setLoading(btn, true);
+    try {
+        selectedTpl = await del(`/monthly-templates/${selectedTpl.id}/days/last`);
+        // del возвращает null при 204, но этот эндпоинт возвращает 200 с данными
+        if (!selectedTpl) {
+            selectedTpl = await get(`/monthly-templates/${/* id сохранён */selectedTpl?.id ?? 0}`);
+        }
+        renderEditor();
+        renderTemplates();
+        toastOk('Последний день удалён');
+    } catch (e) {
+        toastErr(e.message);
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+document.getElementById('deleteTplBtn').addEventListener('click', async () => {
+    if (!selectedTpl) return;
+    try {
+        await del(`/monthly-templates/${selectedTpl.id}`);
+        templates = templates.filter(t => t.id !== selectedTpl.id);
+        selectedTpl = null;
+        renderTemplates();
+        document.getElementById('editorEmpty').classList.remove('hidden');
+        document.getElementById('editorContent').classList.add('hidden');
+        toastOk('Шаблон удалён');
+    } catch (e) {
+        toastErr(e.message);
+    }
+});
+
+// Форма создания
+document.getElementById('newTplBtn').addEventListener('click', () => {
+    document.getElementById('newTplForm').classList.remove('hidden');
+});
+
+document.getElementById('cancelTplBtn').addEventListener('click', () => {
+    document.getElementById('newTplForm').classList.add('hidden');
+});
+
+document.getElementById('createTplBtn').addEventListener('click', async () => {
+    const name = document.getElementById('tplName').value.trim();
+    if (!name) { toastErr('Название обязательно'); return; }
+    const btn = document.getElementById('createTplBtn');
+    setLoading(btn, true);
+    try {
+        const tpl = await post('/monthly-templates/', {
+            name,
+            description: document.getElementById('tplDesc').value.trim() || null,
+        });
+        templates.unshift(tpl);
+        renderTemplates();
+        document.getElementById('newTplForm').classList.add('hidden');
+        ['tplName','tplDesc'].forEach(id => document.getElementById(id).value = '');
+        toastOk('Шаблон создан');
+    } catch (e) {
+        toastErr(e.message);
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+Promise.all([loadTemplates(), loadDailyTemplates()]);
+</script>
+{% endblock %}

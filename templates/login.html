@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Вход{% endblock %}
+
+{% block auth_content %}
+<div class="auth-wrap">
+    <div class="auth-box">
+        <div class="auth-logo"><span>▸</span> workout</div>
+
+        <h1 class="auth-title">Вход</h1>
+        <p class="auth-sub">Введите данные вашего аккаунта</p>
+
+        <div class="auth-error" id="error"></div>
+
+        <form class="auth-form" id="loginForm">
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input type="email" id="login" placeholder="you@example.com" required autocomplete="email">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Пароль</label>
+                <input type="password" id="password" placeholder="••••••" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;" id="submitBtn">
+                Войти
+            </button>
+        </form>
+
+        <p class="auth-switch">Нет аккаунта? <a href="/register">Зарегистрироваться</a></p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const err = document.getElementById('error');
+    err.style.display = 'none';
+    setLoading(btn, true);
+
+    try {
+        await post('/users/login', {
+            login: document.getElementById('login').value,
+            password: document.getElementById('password').value,
+        });
+        window.location.href = '/dashboard';
+    } catch (ex) {
+        err.textContent = ex.message;
+        err.style.display = 'block';
+        setLoading(btn, false);
+    }
+});
+</script>
+{% endblock %}

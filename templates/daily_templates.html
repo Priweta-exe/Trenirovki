@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}Дневные шаблоны{% endblock %}
+
+{% block content %}
+<p class="page-title">дневные шаблоны</p>
+
+<div class="editor-layout">
+    <!-- Список шаблонов -->
+    <div>
+        <div class="flex-between mb-1">
+            <span class="section-label">Мои шаблоны</span>
+            <button class="btn btn-ghost btn-sm" id="newTemplateBtn">+ новый</button>
+        </div>
+
+        <!-- Форма создания шаблона -->
+        <div class="card mb-2 hidden" id="newTemplateForm">
+            <div class="editor-panel-title">Новый шаблон</div>
+            <div class="form-group">
+                <label class="form-label">Название *</label>
+                <input type="text" id="tplName" maxlength="100">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Группа мышц</label>
+                    <input type="text" id="tplMuscle" maxlength="50">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Сложность</label>
+                    <select id="tplDifficulty">
+                        <option value="">—</option>
+                        <option value="beginner">Начальный</option>
+                        <option value="intermediate">Средний</option>
+                        <option value="advanced">Продвинутый</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Описание</label>
+                <textarea id="tplDesc" rows="2" style="resize:vertical;"></textarea>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost btn-sm" id="cancelTplBtn">отмена</button>
+                <button class="btn btn-primary btn-sm" id="createTplBtn">создать</button>
+            </div>
+        </div>
+
+        <div id="templatesList" class="item-list">
+            <div class="empty-state"><div class="empty-state-icon">◧</div>загрузка...</div>
+        </div>
+    </div>
+
+    <!-- Редактор шаблона -->
+    <div class="editor-panel" id="editorPanel">
+        <div id="editorEmpty" style="text-align:center;padding:2rem 0;color:var(--text-3);font-size:.82rem;font-family:var(--font-mono);">
+            ← выберите шаблон
+        </div>
+
+        <div class="hidden" id="editorContent">
+            <div class="flex-between" style="margin-bottom:1rem;">
+                <div class="editor-panel-title" style="margin:0;" id="editorTitle"></div>
+                <button class="btn btn-danger btn-sm" id="deleteTplBtn">удалить</button>
+            </div>
+
+            <!-- Упражнения в шаблоне -->
+            <div class="section-label mb-1">Упражнения</div>
+            <div id="tplExercisesList" class="item-list" style="margin-bottom:1rem;"></div>
+
+            <button class="btn btn-danger btn-sm hidden" id="popExBtn" style="width:100%;justify-content:center;margin-bottom:1rem;">
+                ✕ убрать последнее
+            </button>
+
+            <div class="divider"></div>
+
+            <!-- Добавление упражнения -->
+            <div class="section-label mb-1">Добавить упражнение</div>
+            <div class="form-group">
+                <input type="text" id="exSearch" placeholder="поиск упражнения...">
+            </div>
+            <div id="exPickList" class="item-list" style="max-height:220px;overflow-y:auto;"></div>
+
+            <!-- Параметры -->
+            <div class="hidden" id="addExForm">
+                <div class="divider"></div>
+                <div class="section-label mb-1" id="addExLabel"></div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Подходы</label>
+                        <input type="number" id="exSets" min="1" max="50" value="3">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Повторения</label>
+                        <input type="text" id="exReps" placeholder="10 или 30сек" maxlength="20" value="10">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Отдых (сек)</label>
+                    <input type="number" id="exRest" min="30" max="300" value="60">
+                </div>
+                <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center;" id="addExBtn">
+                    + добавить
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let templates = [];
+let allExercises = [];
+let selectedTpl = null;
+let pickedEx = null;
+
+async function loadTemplates() {
+    try {
+        templates = await get('/daily-templates/');
+        renderTemplates();
+    } catch (e) {
+        toastErr('Не удалось загрузить шаблоны');
+    }
+}
+
+async function loadExercises() {
+    try {
+        const [mine, pub] = await Promise.all([get('/exercises/my'), get('/exercises/public')]);
+        const seen = new Set();
+        allExercises = [...mine, ...pub].filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+    } catch (e) { /* тихо */ }
+}
+
+function renderTemplates() {
+    const c = document.getElementById('templatesList');
+    if (!templates.length) {
+        c.innerHTML = `<div class="empty-state"><div class="empty-state-icon">◧</div>нет шаблонов</div>`;
+        return;
+    }
+    c.innerHTML = templates.map(t => `
+        <div class="item-row card-clickable ${selectedTpl?.id === t.id ? 'active' : ''}" onclick="selectTemplate(${t.id})">
+            <div class="item-row-info">
+                <div class="item-row-name">${t.name}</div>
+                <div class="item-row-sub">
+                    ${t.exercises?.length ?? 0} упр.
+                    ${t.difficulty ? ' · ' + difficultyLabel(t.difficulty) : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function selectTemplate(id) {
+    try {
+        selectedTpl = await get(`/daily-templates/${id}`);
+        renderTemplates();
+        renderEditor();
+    } catch (e) {
+        toastErr(e.message);
+    }
+}
+
+function renderEditor() {
+    document.getElementById('editorEmpty').classList.add('hidden');
+    document.getElementById('editorContent').classList.remove('hidden');
+    document.getElementById('editorTitle').textContent = selectedTpl.name;
+
+    const exList = selectedTpl.exercises || [];
+    const listEl = document.getElementById('tplExercisesList');
+    if (!exList.length) {
+        listEl.innerHTML = `<div class="text-dim text-sm text-mono" style="padding:.5rem 0;">пусто</div>`;
+    } else {
+        listEl.innerHTML = exList.map((e, i) => {
+            const ex = allExercises.find(x => x.id === e.exercise_id);
+            return `
+            <div class="item-row">
+                <span class="item-index">${String(i + 1).padStart(2, '0')}</span>
+                <div class="item-row-info">
+                    <div class="item-row-name">${ex?.name ?? `#${e.exercise_id}`}</div>
+                    <div class="item-row-sub">${e.sets} × ${e.reps}${e.rest ? ' · ' + e.rest + 'с' : ''}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    document.getElementById('popExBtn').classList.toggle('hidden', exList.length === 0);
+    document.getElementById('addExForm').classList.add('hidden');
+    pickedEx = null;
+    renderExPicker('');
+}
+
+function renderExPicker(query) {
+    const list = document.getElementById('exPickList');
+    const filtered = allExercises.filter(e =>
+        !query || e.name.toLowerCase().includes(query.toLowerCase()) || e.muscle_group.toLowerCase().includes(query.toLowerCase())
+    ).slice(0, 20);
+
+    if (!filtered.length) {
+        list.innerHTML = `<div class="text-dim text-sm text-mono" style="padding:.5rem 0;">ничего не найдено</div>`;
+        return;
+    }
+    list.innerHTML = filtered.map(e => `
+        <div class="item-row card-clickable ${pickedEx?.id === e.id ? 'active' : ''}"
+             onclick="pickExercise(${e.id})">
+            <div class="item-row-info">
+                <div class="item-row-name">${e.name}</div>
+                <div class="item-row-sub">${e.muscle_group}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function pickExercise(id) {
+    pickedEx = allExercises.find(e => e.id === id);
+    renderExPicker(document.getElementById('exSearch').value);
+    document.getElementById('addExForm').classList.remove('hidden');
+    document.getElementById('addExLabel').textContent = pickedEx.name;
+}
+
+document.getElementById('exSearch').addEventListener('input', e => renderExPicker(e.target.value));
+
+document.getElementById('addExBtn').addEventListener('click', async () => {
+    if (!pickedEx || !selectedTpl) return;
+    const btn = document.getElementById('addExBtn');
+    setLoading(btn, true);
+    try {
+        selectedTpl = await post(`/daily-templates/${selectedTpl.id}/exercises`, {
+            exercise_id: pickedEx.id,
+            sets: parseInt(document.getElementById('exSets').value),
+            reps: document.getElementById('exReps').value,
+            rest: parseInt(document.getElementById('exRest').value) || null,
+        });
+        // Обновляем в списке
+        const idx = templates.findIndex(t => t.id === selectedTpl.id);
+        if (idx !== -1) templates[idx] = selectedTpl;
+        renderEditor();
+        renderTemplates();
+        toastOk('Упражнение добавлено');
+    } catch (e) {
+        toastErr(e.message);
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+document.getElementById('popExBtn').addEventListener('click', async () => {
+    // Убираем последнее — отправляем обновлённый список без последнего элемента
+    // Так как нет отдельного эндпоинта удаления по индексу, используем patch с новым списком
+    // Но у нас нет такого эндпоинта. Сообщаем пользователю через toast и удаляем через логику стека.
+    toastErr('Удаление упражнений пока недоступно — нет соответствующего эндпоинта');
+});
+
+document.getElementById('deleteTplBtn').addEventListener('click', async () => {
+    if (!selectedTpl) return;
+    try {
+        await del(`/daily-templates/${selectedTpl.id}`);
+        templates = templates.filter(t => t.id !== selectedTpl.id);
+        selectedTpl = null;
+        renderTemplates();
+        document.getElementById('editorEmpty').classList.remove('hidden');
+        document.getElementById('editorContent').classList.add('hidden');
+        toastOk('Шаблон удалён');
+    } catch (e) {
+        toastErr(e.message);
+    }
+});
+
+// Форма нового шаблона
+document.getElementById('newTemplateBtn').addEventListener('click', () => {
+    document.getElementById('newTemplateForm').classList.remove('hidden');
+});
+
+document.getElementById('cancelTplBtn').addEventListener('click', () => {
+    document.getElementById('newTemplateForm').classList.add('hidden');
+});
+
+document.getElementById('createTplBtn').addEventListener('click', async () => {
+    const name = document.getElementById('tplName').value.trim();
+    if (!name) { toastErr('Название обязательно'); return; }
+    const btn = document.getElementById('createTplBtn');
+    setLoading(btn, true);
+    try {
+        const tpl = await post('/daily-templates/', {
+            name,
+            muscle_group: document.getElementById('tplMuscle').value.trim() || null,
+            difficulty: document.getElementById('tplDifficulty').value || null,
+            description: document.getElementById('tplDesc').value.trim() || null,
+        });
+        templates.unshift(tpl);
+        renderTemplates();
+        document.getElementById('newTemplateForm').classList.add('hidden');
+        ['tplName','tplMuscle','tplDesc'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('tplDifficulty').value = '';
+        toastOk('Шаблон создан');
+    } catch (e) {
+        toastErr(e.message);
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+Promise.all([loadTemplates(), loadExercises()]);
+</script>
+{% endblock %}

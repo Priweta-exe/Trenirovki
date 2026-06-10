@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Сводка{% endblock %}
+
+{% block content %}
+<p class="page-title">сводка</p>
+
+<!-- Активные цели -->
+<div class="flex-between mb-1">
+    <span class="section-label">Активные цели</span>
+    <button class="btn btn-ghost btn-sm" id="addGoalBtn">+ добавить</button>
+</div>
+
+<div id="goalsList">
+    <div class="empty-state">
+        <div class="empty-state-icon">◈</div>
+        загрузка...
+    </div>
+</div>
+
+<!-- Форма добавления цели (скрыта по умолчанию) -->
+<div class="card mt-2 hidden" id="addGoalForm">
+    <div class="editor-panel-title">Новая цель</div>
+    <div class="form-group">
+        <label class="form-label">Календарный шаблон</label>
+        <select id="goalTemplate">
+            <option value="">Выберите шаблон...</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label class="form-label" style="display:flex;align-items:center;gap:.5rem;cursor:pointer;">
+            <input type="checkbox" id="goalCycled" style="width:auto;">
+            Зациклить по завершении
+        </label>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-ghost btn-sm" id="cancelGoalBtn">отмена</button>
+        <button class="btn btn-primary btn-sm" id="confirmGoalBtn">начать</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let goals = [];
+let templates = [];
+
+async function loadGoals() {
+    try {
+        goals = await get('/goals/active');
+        renderGoals();
+    } catch (e) {
+        toastErr('Не удалось загрузить цели');
+    }
+}
+
+async function loadTemplates() {
+    try {
+        templates = await get('/monthly-templates/');
+    } catch (e) { /* тихо */ }
+}
+
+function renderGoals() {
+    const container = document.getElementById('goalsList');
+
+    if (!goals.length) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">◈</div>
+                нет активных целей
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = goals.map(g => {
+        const p = g.progress || {};
+        const pct = p.progress_percent ?? 0;
+        const cycled = g.is_cycled ? '<span class="tag">∞ цикл</span>' : '';
+        return `
+        <div class="card mb-1" style="animation:fadeIn 200ms ease">
+            <div class="flex-between">
+                <div>
+                    <div class="card-title">${g.template_name || '—'}</div>
+                    <div class="card-meta">
+                        <span>день ${p.completed_days ?? 0} из ${p.total_days ?? 0}</span>
+                        ${cycled}
+                    </div>
+                </div>
+                <button class="btn btn-danger btn-sm" onclick="deleteGoal(${g.id})">✕</button>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="progress-label">
+                <span>${pct}%</span>
+                <span>осталось ${p.remaining_days ?? 0} дн.</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function deleteGoal(id) {
+    try {
+        await del(`/goals/${id}`);
+        goals = goals.filter(g => g.id !== id);
+        renderGoals();
+        toastOk('Цель удалена');
+    } catch (e) {
+        toastErr(e.message);
+    }
+}
+
+// Форма добавления
+document.getElementById('addGoalBtn').addEventListener('click', async () => {
+    if (!templates.length) await loadTemplates();
+    const sel = document.getElementById('goalTemplate');
+    sel.innerHTML = '<option value="">Выберите шаблон...</option>' +
+        templates.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+    document.getElementById('addGoalForm').classList.remove('hidden');
+});
+
+document.getElementById('cancelGoalBtn').addEventListener('click', () => {
+    document.getElementById('addGoalForm').classList.add('hidden');
+});
+
+document.getElementById('confirmGoalBtn').addEventListener('click', async () => {
+    const templateId = parseInt(document.getElementById('goalTemplate').value);
+    if (!templateId) { toastErr('Выберите шаблон'); return; }
+    const btn = document.getElementById('confirmGoalBtn');
+    setLoading(btn, true);
+    try {
+        const goal = await post('/goals/', {
+            monthly_template_id: templateId,
+            is_cycled: document.getElementById('goalCycled').checked,
+        });
+        goals.push(goal);
+        renderGoals();
+        document.getElementById('addGoalForm').classList.add('hidden');
+        toastOk('Цель добавлена');
+    } catch (e) {
+        toastErr(e.message);
+    } finally {
+        setLoading(btn, false);
+    }
+});
+
+loadGoals();
+</script>
+{% endblock %}
